@@ -1,0 +1,123 @@
+services:
+    supplier-gateway-postgres:
+        image: 'postgres:18-alpine'
+        environment:
+            POSTGRES_DB: supplier_order_gateway
+            POSTGRES_USER: gateway
+            POSTGRES_PASSWORD: '${SUPPLIER_GATEWAY_DB_PASSWORD:?Set SUPPLIER_GATEWAY_DB_PASSWORD in the root .env}'
+        volumes:
+            - 'supplier-gateway-pgsql:/var/lib/postgresql'
+        networks:
+            - inventory
+        healthcheck:
+            test: ['CMD', 'pg_isready', '-q', '-d', 'supplier_order_gateway', '-U', 'gateway']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+        profiles:
+            - supplier-gateway
+
+    supplier-order-gateway:
+        build:
+            context: '../vendor/laravel/sail/runtimes/8.5'
+            dockerfile: Dockerfile
+            args:
+                WWWGROUP: '${WWWGROUP:-1000}'
+        image: 'sail-8.5/supplier-order-gateway'
+        working_dir: /var/www/html
+        volumes:
+            - '.:/var/www/html'
+        env_file:
+            - path: .env
+              required: false
+        environment:
+            WWWUSER: '${WWWUSER:-1000}'
+            LARAVEL_SAIL: 1
+            APP_ENV: local
+            APP_DEBUG: 'false'
+            LOG_CHANNEL: stderr
+            DB_CONNECTION: pgsql
+            DB_URL: ''
+            DB_HOST: supplier-gateway-postgres
+            DB_PORT: 5432
+            DB_DATABASE: supplier_order_gateway
+            DB_USERNAME: gateway
+            DB_PASSWORD: '${SUPPLIER_GATEWAY_DB_PASSWORD:?Set SUPPLIER_GATEWAY_DB_PASSWORD in the root .env}'
+            RABBITMQ_HOST: rabbitmq
+            RABBITMQ_PORT: 5672
+            RABBITMQ_USER: '${RABBITMQ_USER:?Set RABBITMQ_USER in the root .env}'
+            RABBITMQ_PASSWORD: '${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in the root .env}'
+            RABBITMQ_VHOST: '${RABBITMQ_VHOST:-/}'
+        depends_on:
+            supplier-gateway-postgres:
+                condition: service_healthy
+        networks:
+            - inventory
+        command: ['php', 'artisan', 'stock-minimum:consume']
+        profiles:
+            - supplier-gateway
+
+    supplier-gateway-test-runner:
+        build:
+            context: '../vendor/laravel/sail/runtimes/8.5'
+            dockerfile: Dockerfile
+            args:
+                WWWGROUP: '${WWWGROUP:-1000}'
+        image: 'sail-8.5/supplier-order-gateway'
+        working_dir: /var/www/html
+        volumes:
+            - '.:/var/www/html'
+        environment:
+            WWWUSER: '${WWWUSER:-1000}'
+            LARAVEL_SAIL: 1
+            APP_ENV: testing
+            APP_DEBUG: 'false'
+            LOG_CHANNEL: stderr
+            DB_CONNECTION: pgsql
+            DB_URL: ''
+            DB_HOST: supplier-gateway-test-postgres
+            DB_PORT: 5432
+            DB_DATABASE: testing
+            DB_USERNAME: gateway_test
+            DB_PASSWORD: gateway_test
+            RABBITMQ_HOST: rabbitmq
+            RABBITMQ_PORT: 5672
+            RABBITMQ_USER: '${RABBITMQ_USER:?Set RABBITMQ_USER in the root .env}'
+            RABBITMQ_PASSWORD: '${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in the root .env}'
+            RABBITMQ_VHOST: '${RABBITMQ_VHOST:-/}'
+        depends_on:
+            supplier-gateway-test-postgres:
+                condition: service_healthy
+        networks:
+            - inventory
+        command: ['php', 'artisan', 'test']
+        profiles:
+            - supplier-gateway-testing
+
+    supplier-gateway-test-postgres:
+        image: 'postgres:18-alpine'
+        environment:
+            POSTGRES_DB: testing
+            POSTGRES_USER: gateway_test
+            POSTGRES_PASSWORD: gateway_test
+        tmpfs:
+            - /var/lib/postgresql
+        networks:
+            - inventory
+        healthcheck:
+            test: ['CMD', 'pg_isready', '-q', '-d', 'testing', '-U', 'gateway_test']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+        profiles:
+            - supplier-gateway-testing
+
+networks:
+    inventory:
+        external: true
+        name: warung-pak-hendy_sail
+
+volumes:
+    supplier-gateway-pgsql:
